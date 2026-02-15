@@ -1,0 +1,112 @@
+2DA V2.0
+
+   WPTag            ResRef           SpawnTiming  OnSpawnScript  AsPlayer  ManifestFlags  Persistent  Enabled
+0  LIVENPC_GUARD1   nw_guard         1            ****           1         2              1           1
+1  LIVENPC_MERCH1   nw_merchant      2            ****           0         2              1           1
+2  LIVENPC_TEST1    my_testnpc       0            my_init        1         2              0           1
+
+****
+
+COLUMN GUIDE:
+=============
+
+WPTag (String):
+---------------
+Waypoint tag to spawn at
+Example: LIVENPC_GUARD1
+Must exist in area!
+
+ResRef (String):
+----------------
+Creature blueprint ResRef
+Example: nw_guard, my_custom_npc
+Must exist in module!
+
+SpawnTiming (Int):
+------------------
+0 = Always (spawn regardless of player count)
+1 = Before Players (spawn only when area empty)
+2 = After Players (spawn only when players present)
+
+OnSpawnScript (String):
+------------------------
+Script to execute after spawning NPC
+Use **** for none
+Example: my_npc_init
+
+AsPlayer (0/1):
+---------------
+0 = Register as NPC (normal)
+1 = Register as PLAYER (for testing, counts toward player limit)
+
+ManifestFlags (Int):
+--------------------
+Manifest category flags (bitflags)
+Default: 2 (MF_LIVE_NPC)
+See mg_manifest.nss for flag values
+
+Persistent (0/1):
+-----------------
+0 = Can be killed/despawned (normal)
+1 = Plot flag (immortal, doesn't despawn)
+
+Enabled (0/1):
+--------------
+0 = Disabled (skip this row)
+1 = Enabled (spawn this NPC)
+
+USAGE:
+======
+
+Module-Wide 2DA:
+----------------
+File: mg_livenpc.2da
+Used by all areas
+
+Area-Specific 2DA:
+------------------
+File: [areaname]_livenpc.2da
+Example: jdk1_desert_livenpc.2da
+Overrides module-wide for that area
+
+EXAMPLES:
+=========
+
+Guard (Before Players, Persistent):
+------------------------------------
+WPTag: LIVENPC_GUARD1
+ResRef: nw_guard
+SpawnTiming: 1 (before players)
+AsPlayer: 1 (register as player for testing)
+Persistent: 1 (plot flag)
+Enabled: 1
+
+Merchant (After Players, Normal):
+----------------------------------
+WPTag: LIVENPC_MERCH1
+ResRef: nw_merchant
+SpawnTiming: 2 (after players)
+AsPlayer: 0 (normal NPC)
+Persistent: 1 (don't despawn)
+Enabled: 1
+
+Test NPC (Always, Custom Script):
+----------------------------------
+WPTag: LIVENPC_TEST1
+ResRef: my_testnpc
+SpawnTiming: 0 (always)
+OnSpawnScript: my_init
+AsPlayer: 1 (testing)
+Persistent: 0 (can be killed)
+Enabled: 1
+
+WORKFLOW:
+=========
+
+1. Place waypoint in area with tag matching WPTag
+2. Add row to 2DA
+3. Set Enabled = 1
+4. Enable system: SetLocalInt(GetModule(), "MG_LIVE_NPC", 1)
+5. NPCs spawn automatically via mg_switch!
+
+NO SCRIPTING REQUIRED!
