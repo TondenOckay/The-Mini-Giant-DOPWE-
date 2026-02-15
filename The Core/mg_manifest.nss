@@ -1,18 +1,18 @@
 /* ============================================================================
     DOWE v2.2 - mg_manifest.nss
     Manifest Core System
-    
+
     ARCHITECTURE:
     This is the heart of the manifest system. Every object in an area gets
     registered here with category flags. Think of it as a living inventory
     that updates itself automatically.
-    
+
     WHY THIS WORKS:
     - O(1) slot allocation via freelist (no loops to find empty slots)
     - Token-based iteration (prevents nested loop conflicts)
     - Bitflag categories (single object can have multiple types)
     - Self-cleaning (ghosts removed automatically)
-    
+
     CRITICAL FOR NWNEE:
     - All local vars are area-scoped (fast access)
     - No object scans (GetFirstObjectInArea is SLOW)
@@ -93,11 +93,11 @@ int FreelistPop(object oArea)
 {
     int nHead = GetLocalInt(oArea, M_FREE_HEAD);
     if (nHead == 0) return 0;
-    
+
     int nNext = GetLocalInt(oArea, M_FREE_PFX + IntToString(nHead));
     SetLocalInt(oArea, M_FREE_HEAD, nNext);
     DeleteLocalInt(oArea, M_FREE_PFX + IntToString(nHead));
-    
+
     return nHead;
 }
 
@@ -109,19 +109,19 @@ void DebugManifest(object oArea, string sMsg)
 {
     object oMod = GetModule();
     if (!GetLocalInt(oMod, "MG_DEBUG_MAN")) return;
-    
+
     // BATCHING: Only log every 10th operation to prevent log flooding
     // This is critical in high-churn areas (combat zones, loot areas)
     int nLogCount = GetLocalInt(oMod, "M_LOG_CNT");
     SetLocalInt(oMod, "M_LOG_CNT", nLogCount + 1);
-    
+
     if (nLogCount % 10 != 0) return;
-    
+
     string sTag = GetIsObjectValid(oArea) ? GetTag(oArea) : "MODULE";
     int nTick = GetLocalInt(oMod, "MG_TICK");
-    
+
     string sOut = "[MAN-" + IntToString(nTick) + "][" + sTag + "] " + sMsg;
-    
+
     WriteTimestampedLogEntry(sOut);
     SendMessageToAllDMs(sOut);
 }
@@ -147,24 +147,24 @@ int GetTickDiff(int nCurrent, int nPast)
 
 /* ----------------------------------------------------------------------------
    ManifestAdd - Register an object to the manifest
-   
+
    PARAMETERS:
    oArea      - Area containing the object
    oObj       - Object to register
    nFlags     - Category flags (can combine multiple)
    nExpire    - Optional: Lifespan in ticks (0 = permanent)
-   
+
    RETURNS:
    Assigned slot number (0 if failed)
-   
+
    PERFORMANCE:
    O(1) via freelist, no iteration required
-   
+
    CRITICAL FEATURES:
    - Double-registration protection (checks if already registered)
    - Capacity warnings (alerts at 90%, fails at 100%)
    - Automatic expiration setup
-   - Reverse lookup storage (object → slot)
+   - Reverse lookup storage (object ? slot)
 ---------------------------------------------------------------------------- */
 int ManifestAdd(object oArea, object oObj, int nFlags, int nExpire = 0)
 {
@@ -173,7 +173,7 @@ int ManifestAdd(object oArea, object oObj, int nFlags, int nExpire = 0)
         DebugManifest(oArea, "ERROR: Attempted to add invalid object");
         return 0;
     }
-    
+
     // DOUBLE-REGISTRATION PROTECTION
     // Check if object already has a slot assigned
     int nExist = GetLocalInt(oObj, M_OBJ_SLOT);
@@ -187,18 +187,18 @@ int ManifestAdd(object oArea, object oObj, int nFlags, int nExpire = 0)
             return nExist;
         }
     }
-    
+
     int nSlot = 0;
-    
+
     // Try to reuse a freed slot (O(1) operation via stack pop)
     nSlot = FreelistPop(oArea);
-    
+
     // No freed slots available, allocate new one
     if (nSlot == 0)
     {
         int nMax = GetLocalInt(oArea, M_MAX_SLOT);
         nSlot = nMax + 1;
-        
+
         // CAPACITY CHECK - Hard limit to prevent runaway growth
         if (nSlot > M_MAX_SLOTS)
         {
@@ -206,58 +206,58 @@ int ManifestAdd(object oArea, object oObj, int nFlags, int nExpire = 0)
             SendMessageToAllDMs("CRITICAL: Manifest capacity exceeded in " + GetTag(oArea));
             return 0;
         }
-        
+
         // CAPACITY WARNING - Alert DMs before hitting limit
         if (nSlot > M_WARN_THRESHOLD && nMax <= M_WARN_THRESHOLD)
         {
             SendMessageToAllDMs("WARNING: Manifest at 90% capacity in " + GetTag(oArea));
         }
-        
+
         SetLocalInt(oArea, M_MAX_SLOT, nSlot);
     }
-    
+
     // Build slot prefix for all properties
     string sPfx = M_SLOT_PFX + IntToString(nSlot) + "_";
-    
+
     // Store all slot properties
     SetLocalObject(oArea, sPfx + M_OBJ, oObj);
     SetLocalInt(oArea, sPfx + M_FLAGS, nFlags);
     SetLocalString(oArea, sPfx + M_TAG, GetTag(oObj));
-    
+
     // Record spawn time
     int nTick = GetLocalInt(GetModule(), "MG_TICK");
     SetLocalInt(oArea, sPfx + M_SPAWN, nTick);
-    
+
     // Set expiration if specified
     if (nExpire > 0)
     {
         int nExpTick = (nTick + nExpire) % 10000;
         SetLocalInt(oArea, sPfx + M_EXPIRE, nExpTick);
     }
-    
-    // Store reverse lookup (object → slot)
+
+    // Store reverse lookup (object ? slot)
     SetLocalInt(oObj, M_OBJ_SLOT, nSlot);
-    
+
     // Increment active count
     int nCount = GetLocalInt(oArea, M_COUNT);
     SetLocalInt(oArea, M_COUNT, nCount + 1);
-    
-    DebugManifest(oArea, "Add: " + GetTag(oObj) + " slot=" + IntToString(nSlot) + 
+
+    DebugManifest(oArea, "Add: " + GetTag(oObj) + " slot=" + IntToString(nSlot) +
                          " flags=" + IntToString(nFlags));
-    
+
     return nSlot;
 }
 
 /* ----------------------------------------------------------------------------
    ManifestRemove - Unregister an object from the manifest
-   
+
    PARAMETERS:
    oArea - Area containing the object
    oObj  - Object to unregister
-   
+
    PERFORMANCE:
    O(1) - Direct slot lookup via reverse reference
-   
+
    SIDE EFFECTS:
    - Adds slot to freelist for reuse
    - Decrements active count
@@ -267,9 +267,9 @@ void ManifestRemove(object oArea, object oObj)
 {
     int nSlot = GetLocalInt(oObj, M_OBJ_SLOT);
     if (nSlot == 0) return;  // Not in manifest
-    
+
     string sPfx = M_SLOT_PFX + IntToString(nSlot) + "_";
-    
+
     // Clear all slot properties
     DeleteLocalObject(oArea, sPfx + M_OBJ);
     DeleteLocalInt(oArea, sPfx + M_FLAGS);
@@ -278,18 +278,18 @@ void ManifestRemove(object oArea, object oObj)
     DeleteLocalInt(oArea, sPfx + M_SPAWN);
     DeleteLocalInt(oArea, sPfx + M_EXPIRE);
     DeleteLocalString(oArea, sPfx + M_TAG);
-    
+
     // Clear reverse lookup
     DeleteLocalInt(oObj, M_OBJ_SLOT);
-    
+
     // Add slot to freelist for reuse
     FreelistPush(oArea, nSlot);
-    
+
     // Decrement count
     int nCount = GetLocalInt(oArea, M_COUNT);
     if (nCount > 0)
         SetLocalInt(oArea, M_COUNT, nCount - 1);
-    
+
     DebugManifest(oArea, "Remove: slot=" + IntToString(nSlot) + " (freed)");
 }
 
@@ -329,7 +329,7 @@ int ManifestCountBy(object oArea, int nFilter)
 {
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
     int nMatches = 0;
-    
+
     int i;
     for (i = 1; i <= nMax; i++)
     {
@@ -340,7 +340,7 @@ int ManifestCountBy(object oArea, int nFilter)
                 nMatches++;
         }
     }
-    
+
     return nMatches;
 }
 
@@ -350,20 +350,20 @@ int ManifestCountBy(object oArea, int nFilter)
 
 /* ----------------------------------------------------------------------------
    Token-Based Iteration
-   
+
    WHY TOKENS ARE CRITICAL:
    Without tokens, nested iterations corrupt each other. Example:
-   
+
    BROKEN (without tokens):
    foreach creature
-       foreach player  ← This overwrites the creature iteration state!
+       foreach player  ? This overwrites the creature iteration state!
            ...
-   
+
    FIXED (with tokens):
    string sToken1 = ManifestToken();
    foreach creature (token1)
        string sToken2 = ManifestToken();
-       foreach player (token2)  ← Separate state, no conflict
+       foreach player (token2)  ? Separate state, no conflict
            ...
 ---------------------------------------------------------------------------- */
 
@@ -382,15 +382,15 @@ string ManifestToken()
 object ManifestFirst(object oArea, int nFilter, string sToken = "")
 {
     if (sToken == "") sToken = ManifestToken();
-    
+
     string sSlot = M_ITER_PFX + sToken + "_S";
     string sFlag = M_ITER_PFX + sToken + "_F";
-    
+
     SetLocalInt(oArea, sSlot, 1);
     SetLocalInt(oArea, sFlag, nFilter);
-    
+
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
-    
+
     int i;
     for (i = 1; i <= nMax; i++)
     {
@@ -404,11 +404,11 @@ object ManifestFirst(object oArea, int nFilter, string sToken = "")
             }
         }
     }
-    
+
     // No matches found, clean up state
     DeleteLocalInt(oArea, sSlot);
     DeleteLocalInt(oArea, sFlag);
-    
+
     return OBJECT_INVALID;
 }
 
@@ -418,11 +418,11 @@ object ManifestNext(object oArea, string sToken = "DEFAULT")
 {
     string sSlot = M_ITER_PFX + sToken + "_S";
     string sFlag = M_ITER_PFX + sToken + "_F";
-    
+
     int nCur = GetLocalInt(oArea, sSlot);
     int nFilter = GetLocalInt(oArea, sFlag);
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
-    
+
     int i;
     for (i = nCur; i <= nMax; i++)
     {
@@ -436,11 +436,11 @@ object ManifestNext(object oArea, string sToken = "DEFAULT")
             }
         }
     }
-    
+
     // Iteration complete, clean up state
     DeleteLocalInt(oArea, sSlot);
     DeleteLocalInt(oArea, sFlag);
-    
+
     return OBJECT_INVALID;
 }
 
@@ -452,15 +452,15 @@ object ManifestNext(object oArea, string sToken = "DEFAULT")
 int ManifestAddPC(object oPC, object oArea)
 {
     if (!GetIsPC(oPC)) return 0;
-    
+
     int nSlot = ManifestAdd(oArea, oPC, MF_PLAYER);
-    
+
     if (nSlot > 0)
     {
         string sPfx = M_SLOT_PFX + IntToString(nSlot) + "_";
         SetLocalString(oArea, sPfx + M_CDKEY, GetPCPublicCDKey(oPC));
     }
-    
+
     return nSlot;
 }
 
@@ -476,10 +476,10 @@ int ManifestPCCount(object oArea)
 
 /* ----------------------------------------------------------------------------
    ManifestCull - Remove expired objects
-   
+
    RETURNS:
    Number of objects destroyed
-   
+
    TICK SAFETY:
    Uses GetTickDiff to handle tick wraparound at 10,000
 ---------------------------------------------------------------------------- */
@@ -488,28 +488,28 @@ int ManifestCull(object oArea)
     int nTick = GetLocalInt(GetModule(), "MG_TICK");
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
     int nCulled = 0;
-    
+
     int i;
     for (i = 1; i <= nMax; i++)
     {
         string sPfx = M_SLOT_PFX + IntToString(i) + "_";
         int nExpire = GetLocalInt(oArea, sPfx + M_EXPIRE);
-        
+
         if (nExpire > 0)
         {
             int nSpawn = GetLocalInt(oArea, sPfx + M_SPAWN);
             int nAge = GetTickDiff(nTick, nSpawn);
             int nLife = GetTickDiff(nExpire, nSpawn);
-            
+
             // Object has exceeded lifespan
             if (nAge >= nLife)
             {
                 object oObj = GetLocalObject(oArea, sPfx + M_OBJ);
-                
+
                 if (GetIsObjectValid(oObj))
                 {
                     int nFlags = GetLocalInt(oArea, sPfx + M_FLAGS);
-                    
+
                     // Only cull if it's a cullable type
                     if ((nFlags & MF_ALL_CULLABLE) != 0)
                     {
@@ -526,13 +526,13 @@ int ManifestCull(object oArea)
             }
         }
     }
-    
+
     return nCulled;
 }
 
 /* ----------------------------------------------------------------------------
    ManifestClean - Remove ghost references (invalid objects still in manifest)
-   
+
    WHEN TO CALL:
    - Automatically every 10 beats via switchboard
    - Manually when manifest integrity suspected
@@ -541,12 +541,12 @@ void ManifestClean(object oArea)
 {
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
     int nCleaned = 0;
-    
+
     int i;
     for (i = 1; i <= nMax; i++)
     {
         string sPfx = M_SLOT_PFX + IntToString(i) + "_";
-        
+
         // Only check slots that appear to have data
         if (GetLocalInt(oArea, sPfx + M_FLAGS) > 0)
         {
@@ -559,7 +559,7 @@ void ManifestClean(object oArea)
             }
         }
     }
-    
+
     if (nCleaned > 0)
         DebugManifest(oArea, "Cleaned " + IntToString(nCleaned) + " ghost refs");
 }
@@ -570,14 +570,14 @@ void ManifestClean(object oArea)
 
 /* ----------------------------------------------------------------------------
    ManifestCheck - Validate manifest integrity
-   
+
    PARAMETERS:
    oArea  - Area to check
    bQuick - TRUE for fast check (validity only), FALSE for deep check
-   
+
    RETURNS:
    Number of issues found
-   
+
    USAGE:
    - Quick check: Every 500 beats (production safe)
    - Deep check: Every 100 beats in debug mode only
@@ -587,27 +587,27 @@ int ManifestCheck(object oArea, int bQuick = TRUE)
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
     int nIssues = 0;
     int nChecked = 0;
-    
+
     int i;
     for (i = 1; i <= nMax; i++)
     {
         string sPfx = M_SLOT_PFX + IntToString(i) + "_";
         int nFlags = GetLocalInt(oArea, sPfx + M_FLAGS);
-        
+
         if (nFlags == 0) continue;  // Empty slot
-        
+
         nChecked++;
-        
+
         // QUICK CHECK: Just verify object is valid
         if (bQuick)
         {
             object oObj = GetLocalObject(oArea, sPfx + M_OBJ);
             if (!GetIsObjectValid(oObj))
                 nIssues++;
-            
+
             continue;
         }
-        
+
         // DEEP CHECK: Verify everything
         object oObj = GetLocalObject(oArea, sPfx + M_OBJ);
         if (!GetIsObjectValid(oObj))
@@ -616,7 +616,7 @@ int ManifestCheck(object oArea, int bQuick = TRUE)
             nIssues++;
             continue;
         }
-        
+
         // Check reverse lookup matches
         int nRev = GetLocalInt(oObj, M_OBJ_SLOT);
         if (nRev != i)
@@ -624,7 +624,7 @@ int ManifestCheck(object oArea, int bQuick = TRUE)
             DebugManifest(oArea, "INTEGRITY: Slot " + IntToString(i) + " reverse mismatch");
             nIssues++;
         }
-        
+
         // For creatures, verify owner is valid
         if ((nFlags & MF_ALL_CREATURES) != 0)
         {
@@ -640,10 +640,10 @@ int ManifestCheck(object oArea, int bQuick = TRUE)
             }
         }
     }
-    
+
     if (!bQuick && nIssues == 0)
         DebugManifest(oArea, "INTEGRITY: OK (" + IntToString(nChecked) + " checked)");
-    
+
     return nIssues;
 }
 
@@ -653,26 +653,26 @@ int ManifestCheck(object oArea, int bQuick = TRUE)
 
 /* ----------------------------------------------------------------------------
    ManifestShutdown - Complete area cleanup when last player exits
-   
+
    ZERO-WASTE PHILOSOPHY:
    - Destroys all cullable objects
    - Removes all area effects
    - Clears entire manifest
    - Resets freelist
-   
+
    Area becomes completely dormant until next player enters
 ---------------------------------------------------------------------------- */
 void ManifestShutdown(object oArea)
 {
     // Destroy all cullable objects
     object oObj = ManifestFirst(oArea, MF_ALL_CULLABLE);
-    
+
     while (GetIsObjectValid(oObj))
     {
         DestroyObject(oObj, 0.1);
         oObj = ManifestNext(oArea);
     }
-    
+
     // Clear all area effects
     effect eEff = GetFirstEffect(oArea);
     while (GetIsEffectValid(eEff))
@@ -682,15 +682,15 @@ void ManifestShutdown(object oArea)
             RemoveEffect(oArea, eEff);
         eEff = GetNextEffect(oArea);
     }
-    
+
     // Clear all manifest data
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
-    
+
     int i;
     for (i = 1; i <= nMax; i++)
     {
         string sPfx = M_SLOT_PFX + IntToString(i) + "_";
-        
+
         DeleteLocalObject(oArea, sPfx + M_OBJ);
         DeleteLocalInt(oArea, sPfx + M_FLAGS);
         DeleteLocalString(oArea, sPfx + M_CDKEY);
@@ -699,12 +699,12 @@ void ManifestShutdown(object oArea)
         DeleteLocalInt(oArea, sPfx + M_EXPIRE);
         DeleteLocalString(oArea, sPfx + M_TAG);
     }
-    
+
     // Reset manifest to pristine state
     SetLocalInt(oArea, M_FREE_HEAD, 0);
     SetLocalInt(oArea, M_COUNT, 0);
     SetLocalInt(oArea, M_MAX_SLOT, 0);
-    
+
     DebugManifest(oArea, "Shutdown complete");
 }
 
@@ -714,11 +714,11 @@ void ManifestShutdown(object oArea)
 
 /* ----------------------------------------------------------------------------
    ManifestPackJson - Create JSON snapshot of manifest
-   
+
    TMI PROTECTION:
    Processes 50 entries per phase with 0.1s delay between phases
    This prevents "Too Many Instructions" errors on large manifests
-   
+
    OUTPUT:
    Stored in area local variable "M_JSON_SNAP"
 ---------------------------------------------------------------------------- */
@@ -728,25 +728,25 @@ void ManifestPackJson_Phase(object oArea, int nStart, string sJson)
     int nMax = GetLocalInt(oArea, M_MAX_SLOT);
     int nEnd = nStart + 49;  // Pack 50 at a time
     if (nEnd > nMax) nEnd = nMax;
-    
+
     int i;
     for (i = nStart; i <= nEnd; i++)
     {
         object oObj = ManifestGetObj(oArea, i);
         if (!GetIsObjectValid(oObj)) continue;
-        
+
         string sPfx = M_SLOT_PFX + IntToString(i) + "_";
         int nFlags = GetLocalInt(oArea, sPfx + M_FLAGS);
-        
+
         if (sJson != "") sJson += ",";
-        
+
         sJson += "{";
         sJson += "\"slot\":" + IntToString(i) + ",";
         sJson += "\"tag\":\"" + GetTag(oObj) + "\",";
         sJson += "\"flags\":" + IntToString(nFlags);
         sJson += "}";
     }
-    
+
     // More entries to pack?
     if (nEnd < nMax)
     {
