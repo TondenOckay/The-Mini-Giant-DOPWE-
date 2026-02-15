@@ -1,7 +1,7 @@
 /* ============================================================================
     DOWE v2.2 - mg_const.nss
     System Constants and Configuration
-    
+
     All system-wide constants in one place for easy tuning
    ============================================================================
 */
@@ -16,6 +16,7 @@ const string MG_DEBUG_MAN      = "MG_DEBUG_MAN";    // Manifest operations
 const string MG_DEBUG_ENC      = "MG_DEBUG_ENC";    // Encounter spawning
 const string MG_DEBUG_MUD      = "MG_DEBUG_MUD";    // MUD commands
 const string MG_DEBUG_SQL      = "MG_DEBUG_SQL";    // SQL operations
+const string MG_DEBUG_AI       = "MG_DEBUG_AI";     // AI operations
 
 // ============================================================================
 // TICK SYSTEM (Heartbeat counter)
@@ -24,6 +25,13 @@ const string MG_DEBUG_SQL      = "MG_DEBUG_SQL";    // SQL operations
 const string MG_TICK           = "MG_TICK";         // Current tick
 const string MG_LAST_TICK      = "MG_LAST_TICK";    // Last dispatch tick
 const int MG_TICK_RESET        = 10000;             // Reset threshold
+const int MG_TICK_MAX          = 10000;             // FIXED: Added this!
+
+// ============================================================================
+// MANIFEST CONSTANTS
+// ============================================================================
+
+const string M_PC_COUNT        = "M_PC_COUNT";      // Cached PC count
 
 // ============================================================================
 // SQL CONFIGURATION
@@ -60,8 +68,14 @@ const float MG_ENC_WALK_CHECK  = 2.0;    // Walkable radius check
 // LIVE NPC SYSTEM
 // ============================================================================
 
-const string MG_LIVE_NPC       = "MG_LIVE_NPC";     // System enabled?
+const string MG_LIVE_NPC       = "MG_LIVENPC";      // System enabled?
 const string MG_LIVE_TAG_PFX   = "LIVENPC_";        // Tag prefix
+
+// ============================================================================
+// CREATURE OWNERSHIP
+// ============================================================================
+
+const float MG_TRANSFER_RADIUS = 40.0;   // FIXED: Added this!
 
 // ============================================================================
 // PERFORMANCE TUNING (DelayCommand timings)
