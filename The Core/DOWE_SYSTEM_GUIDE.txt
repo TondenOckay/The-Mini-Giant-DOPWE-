@@ -1,0 +1,631 @@
+================================================================================
+ DOWE CORE SYSTEM - COMPLETE REFERENCE GUIDE
+ Data-Driven Object World Engine for NWNEE Persistent Worlds
+================================================================================
+
+TABLE OF CONTENTS
+  1. Architecture Overview
+  2. The Tree Model (Trunk, Branches, Leaves)
+  3. Core Scripts and What Each Does
+  4. Core 2DAs and What Each Controls
+  5. How Every Area Acts as a Mini-Server
+  6. Boot Sequence Step by Step
+  7. Shutdown Sequence Step by Step
+  8. The Registry System
+  9. The Grid System
+ 10. The GPS System
+ 11. The Package System
+ 12. How to Add a New Package (No Core Changes)
+ 13. How to Create a Package Hub (Sub-Package System)
+ 14. Module Toolset Wiring Checklist
+ 15. SQL Persistence
+ 16. Debug and DM Tools
+ 17. Common Mistakes and How to Avoid Them
+
+================================================================================
+ 1. ARCHITECTURE OVERVIEW
+================================================================================
+
+DOWE is built on one principle: the 2DA is the authority, the script is
+the engine. Nothing about system behavior is hardcoded in any script.
+Every type, every setting, every package, every threshold lives in a 2DA.
+To change behavior, edit the 2DA and reboot. Scripts never change.
+
+The system is designed so that once the core is written, it never needs
+to be touched again. All future content is added by editing 2DAs and
+writing new package scripts that plug in via core_package.2da.
+
+================================================================================
+ 2. THE TREE MODEL
+================================================================================
+
+  MODULE
+    |
+  core_mhb (module heartbeat)
+    |
+  core_dispatch (active area registry + tick counter)
+    |
+    +--- core_switch (fires once per heartbeat per ACTIVE area)
+           |
+           +--- [PHASE 0] Maintenance (ghost clean, expiry cull, despawn)
+           |
+           +--- [PHASE 1] Load measurement (DelayCommand drift heuristic)
+           |
+           +--- [PHASE 2] Pause state update
+           |
+           +--- [PHASE 3] Package dispatch loop (reads core_package.2da cache)
+           |      |
+           |      +--- core_ai_gps        (GPS/sleep/wake/despawn)
+           |      +--- pkg_livenpc        (NPC AI schedules)
+           |      +--- pkg_enc_spawn      (encounter spawning)
+           |      +--- pkg_enc            (encounter AI state)
+           |      +--- pkg_corpse         (corpse decay)
+           |      +--- pkg_itemdecay      (ground item decay)
+           |      +--- pkg_gather         (resource nodes)
+           |      +--- pkg_crafting       (crafting system)
+           |      +--- pkg_weather        (weather simulation)
+           |      +--- pkg_ambient        (ambient spawning)
+           |      +--- pkg_economy        (merchant economy)
+           |      +--- pkg_faction        (faction calculations)
+           |      +--- pkg_persist        (SQL persistence)
+           |      +--- [any future package added to core_package.2da]
+           |
+           +--- [PHASE 4] Grid position update (core_grid)
+
+  INFRASTRUCTURE (below the dispatcher, not in the package loop)
+    core_registry   - object registry for every area
+    core_grid       - spatial grid for O(1) area search
+    core_ai_gps     - GPS is IN the package loop (row 0, always runs first)
+
+  AREA EVENTS
+    core_enter  - fires on area OnEnter (all objects)
+    core_hb     - fires on area OnHeartbeat (failsafe only)
+
+  MODULE EVENTS
+    core_onload - fires on module OnModuleLoad (boots all systems)
+    core_mhb    - fires on module OnModuleHeartbeat (drives dispatch)
+
+================================================================================
+ 3. CORE SCRIPTS AND WHAT EACH DOES
+================================================================================
+
+  core_const.nss
+    System-wide constants. Included by all other core scripts.
+    Contains debug flag names, tick system keys, maintenance intervals,
+    switch phase timings, SQL config, and forward declarations.
+    DO NOT add package-specific constants here.
+
+  core_registry.nss
+    The object registry. Every object in every active area has a slot.
+    Provides: RegistryBoot, RegistryAdd, RegistryRemoveBySlot,
+    RegistryAutoRegister, RegistryFirst, RegistryNext, RegistryClean,
+    RegistryCull, RegistryCull_Void, RegistryCheckDespawn, RegistryShutdown,
+    RegistryActivateArea, RegistryDeactivateArea, RegistryPCCount,
+    RegistryInitArea, RegistryGetSlotFlag, RegistryGetObj.
+    Also maintains the active area registry (MG_ACTIVE_CNT, MG_ACTIVE_[N]).
+
+  core_package.nss
+    The package manager. Reads core_package.2da at boot into module cache.
+    Per-area JSON carries mutable runtime state (paused, last_tick, overrides).
+    Provides: PackageBoot, PackageLoad, PackageUnload, PackageIsRunnable,
+    PackageRecordRun, PackageUpdatePauseStates, PackageRunBootScripts,
+    PackageRunShutdownScripts, PackageSetEnabled, PackageSetInterval,
+    PackageSetThreshold, PackageDump, PackageDumpAll, PackageGetStatus.
+
+  core_grid.nss
+    Spatial grid. Divides each area into cells for O(1) proximity search.
+    Provides: GridBoot, GridInitArea, GridShutdownArea, GridTickUpdate,
+    GridPosToCell, GridGetNeighborCells, GridCellGetCount, GridCellGetSlot,
+    GridCellAddSlot, GridCellRemoveSlot, GridIsNearWater.
+    Settings come from core_grid.2da (cell size, neighbor radius, etc.).
+
+  core_ai_gps.nss
+    GPS proximity system. Runs as a package (row 0 in core_package.2da).
+    Uses the grid to find nearby creatures and PCs without scanning the area.
+    Manages AI sleep/wake states and despawn on distance.
+    Settings come from core_ai_gps.2da (distances, canteen interval).
+
+  core_dispatch.nss
+    Module heartbeat driver. Advances the global tick, reads the active
+    area list, and fires core_switch on each area with a stagger.
+    Also initializes the active area registry at boot.
+
+  core_switch.nss
+    Area switchboard. Runs once per heartbeat per active area.
+    Reads package row count and metadata from module cache (O(1)).
+    Iterates packages numerically - no hardcoded names.
+    Calls PackageIsRunnable, PackageRecordRun, then ExecuteScript.
+    Also runs maintenance (ghost clean, cull, despawn) and grid updates.
+
+  core_enter.nss
+    Area OnEnter handler. Registers the entering object, then if a PC:
+    boots the grid, runs the registry cold-scan, loads package JSON,
+    and runs package boot scripts. All boots are guarded to run once.
+
+  core_hb.nss
+    Area OnHeartbeat failsafe. Only fires core_switch if the module
+    heartbeat has stalled for MG_FAILSAFE_BEATS ticks.
+
+  core_onload.nss
+    Module OnModuleLoad handler. Calls every Boot() function in order.
+    This is the ONLY place Boot() functions are called.
+
+  core_mhb.nss
+    Module OnModuleHeartbeat handler. Calls DispatchTick(). That is all.
+
+================================================================================
+ 4. CORE 2DAs AND WHAT EACH CONTROLS
+================================================================================
+
+  core_registry.2da
+    Defines every object type the system can track.
+    Each row = one type (PLAYER, NPC, CREATURE, ITEM, etc.).
+    Columns control: bitflag, tag prefix, tracking options, auto-register
+    sources, ghost reclaim, expiry ticks, despawn distance, presence var.
+    To add a new trackable object type: add a row. No script changes.
+
+  core_package.2da
+    Defines every package (subsystem) that runs in the server.
+    Each row = one package (ai_gps, livenpc, encounter_spawn, etc.).
+    Columns control: script name, boot/shutdown scripts, priority, interval,
+    min players required, CPU load pause threshold, area override flag,
+    dispatch phase (stagger within tick window).
+    To add a new package: add a row. No core scripts change. Ever.
+
+  core_grid.2da
+    All spatial grid configuration.
+    Rows are key-value pairs with INT_VALUE and FLOAT_VALUE columns.
+    Controls: tile size (always 10.0 in NWNEE), cell size (1/2/4 tiles),
+    neighbor radius for proximity search, max slots per cell, update interval,
+    surface material IDs for water detection.
+
+  core_ai_gps.2da
+    All GPS proximity distances and settings.
+    Rows are key-value pairs.
+    Controls: default sleep distance, despawn distance, owner follow distance,
+    canteen refill interval, max PC array size, despawn warning seconds.
+    Per-creature overrides: set AI_SLP, AI_DSP, etc. on the creature's
+    registry slot at spawn time.
+
+================================================================================
+ 5. HOW EVERY AREA ACTS AS A MINI-SERVER
+================================================================================
+
+When NO players are in an area, the area uses ZERO resources.
+  - Not in the dispatch active list.
+  - No core_switch fires for it.
+  - No packages run.
+  - Registry is empty (or being re-initialized).
+
+When the FIRST player enters:
+  - RegistryAdd detects PC count crossing 0->1.
+  - Calls RegistryActivateArea: area added to MG_ACTIVE list.
+  - core_dispatch now fires core_switch for this area every heartbeat.
+  - GridInitArea computes area dimensions.
+  - RegistryInitArea cold-scans and registers all existing objects.
+  - PackageLoad reads 2DA + SQL, builds per-area JSON.
+  - PackageRunBootScripts runs all package boot hooks with stagger.
+  - Area is fully operational.
+
+When the LAST player leaves:
+  - RegistryRemoveBySlot detects PC count dropping to 0.
+  - Calls RegistryDeactivateArea: area removed from MG_ACTIVE list.
+  - Schedules RegistryShutdown with 3-second delay (PCs might re-enter).
+  - If re-entry guard triggers (PC count > 0), shutdown is cancelled.
+  - Shutdown: PackageRunShutdownScripts saves state to SQL.
+  - Shutdown: Destroys all cullable objects (encounters, corpses, items).
+  - Shutdown: Clears all area effects.
+  - Shutdown: Wipes all slot data and bookkeeping.
+  - Shutdown: Clears all presence counters.
+  - Shutdown: Unloads package JSON.
+  - Shutdown: Clears grid cell data.
+  - Area is now at zero: no variables, no objects, no dispatch. Clean slate.
+
+================================================================================
+ 6. BOOT SEQUENCE STEP BY STEP
+================================================================================
+
+A. MODULE LOAD (fires once at server start)
+  1. core_onload fires:
+     a. RegistryBoot()    - reads core_registry.2da -> module cache
+     b. GridBoot()        - reads core_grid.2da -> module cache
+     c. GpsBoot()         - reads core_ai_gps.2da -> module cache
+     d. PackageBoot()     - reads core_package.2da -> module cache
+     e. PackageCreateTable() - creates SQL table if not exists
+     f. DispatchBoot()    - sets MG_ACTIVE_CNT = 0
+
+B. FIRST PLAYER ENTERS AREA (per area, as needed)
+  1. core_enter fires with oEnter = PC
+  2. RegistryAutoRegister(oEnter, oArea, TRUE)
+     -> RegistryClassify -> PLAYER row
+     -> RegistryAdd -> allocates slot 1
+     -> PC count 0->1 -> RegistryActivateArea
+     -> Area appears in MG_ACTIVE list
+  3. GridInitArea(oArea)
+     -> Reads CELL_SIZE, TILE_SIZE from module cache
+     -> Calls GetAreaSize to get tile dimensions
+     -> Calculates columns, rows, total cells, cell world size
+     -> Stores on area object (GRDA_COLS, GRDA_ROWS, GRDA_CELLS, GRDA_CWS)
+  4. RegistryInitArea(oArea)
+     -> One-time GetFirstObjectInArea scan
+     -> Registers all pre-placed objects by tag prefix
+  5. PackageLoad(oArea)
+     -> SQL query for area-specific overrides
+     -> Builds per-area JSON array (one entry per package row)
+     -> Stores as CORE_PKG_JSON on area object
+  6. PackageRunBootScripts(oArea)
+     -> Iterates module cache for BOOT_SCRIPT fields
+     -> Calls ExecuteScript on each with 0.1s stagger
+
+C. SUBSEQUENT HEARTBEATS
+  1. core_mhb fires -> DispatchTick()
+  2. Tick counter increments (MG_TICK)
+  3. RecordScheduledTick for drift measurement
+  4. Reads MG_ACTIVE_CNT
+  5. For each active area: DelayCommand(fStag, ExecuteScript("core_switch", oArea))
+  6. core_switch fires:
+     a. Phase 0: Maintenance checks (ghost/cull/despawn on intervals)
+     b. Phase 1: MeasureLoadDrift -> UpdateLoadScore -> nLoad
+     c. Phase 2: PackageUpdatePauseStates(oArea, nLoad)
+     d. Phase 3: For i = 0 to PKG_ROW_CNT-1:
+        - PackageIsRunnable(oArea, i, nLoad, nTick, nPCCount)
+        - If runnable: PackageRecordRun + DelayCommand(fPhase, ExecuteScript(sScript, oArea))
+     e. Phase 4: GridTickUpdate on grid interval
+
+================================================================================
+ 7. SHUTDOWN SEQUENCE STEP BY STEP
+================================================================================
+
+A. LAST PC LEAVES (triggered by RegistryRemoveBySlot)
+  1. PC count drops to 0
+  2. DelayCommand(3.0, RegistryShutdown(oArea))
+  3. RegistryDeactivateArea(oArea) - removes from active list immediately
+     -> MG_ACTIVE_CNT decrements
+     -> core_dispatch stops firing core_switch for this area
+     -> But the 3-second delay gives packages time to complete
+
+B. REGISTRY SHUTDOWN (fires after 3-second delay)
+  0. Guard: if PC count > 0 (someone re-entered), abort
+  1. PackageRunShutdownScripts(oArea)
+     -> Calls shutdown script for each enabled package with one
+     -> Scripts save their state to SQL before continuing
+  2. Iterate all cullable slots, DestroyObject each
+  3. Clear area effects (visual effects, AoE effects)
+  4. Wipe all RS_[N]_* slot data from area object
+  5. Reset: RS_FREE, RS_CNT, RS_PCC, RS_MAX, RS_INIT to zero/deleted
+  6. Clear all presence counters (MG_HAS_PC, MG_HAS_ENC, etc.)
+  7. PackageUnload(oArea) - delete CORE_PKG_JSON from area
+  8. GridShutdownArea(oArea) - clear all GRD_C_* cell data
+
+  Area is now completely clean. Zero local variables. Zero objects.
+  Next entry will be a fresh boot as if the area has never been visited.
+
+================================================================================
+ 8. THE REGISTRY SYSTEM
+================================================================================
+
+Every object in an active area occupies one numbered slot on the area object.
+Slots are allocated from a freelist (O(1) alloc/free).
+
+Registration sources:
+  AUTO_ENTER = 1  -> object is registered when it enters the area (OnEnter)
+  AUTO_SPAWN  = 1 -> object is registered when it spawns (OnSpawn)
+
+The registry is used for:
+  - Fast iteration by type (RegistryFirst/RegistryNext with bitflag filter)
+  - O(1) PC count (cached, not scanned)
+  - O(1) presence flags (MG_HAS_PC, MG_HAS_NPC, etc.)
+  - Owner tracking (henchman slot knows its owner's slot)
+  - Expiry-based culling (objects removed after EXPIRE_TICKS)
+  - Grid cell assignment (core_grid writes slot's cell number)
+  - CDKey and account caching for PCs
+
+Objects have two local variables stamped on them:
+  RG_SLOT (int)    - slot number for O(1) reverse lookup
+  RG_TYPE (string) - type stamp (e.g. "PLAYER", "NPC", "CREATURE")
+
+Slot data stored on area object (RS_[N]_O, RS_[N]_F, RS_[N]_T, etc.):
+  O  = object reference
+  F  = bitflag
+  T  = tag (cached at registration)
+  SP = spawn tick
+  EX = expire tick
+  DD = despawn distance
+  OW = owner slot
+  CK = CDKey (players only)
+  AC = account (players only)
+  GC = grid cell index
+  RW = 2DA row index for this type
+
+Iteration pattern (safe for nested loops):
+  string sTok = RegistryToken();
+  object oObj = RegistryFirst(oArea, RF_CREATURE, sTok);
+  while (GetIsObjectValid(oObj))
+  {
+      // process oObj
+      oObj = RegistryNext(oArea, sTok);
+  }
+
+================================================================================
+ 9. THE GRID SYSTEM
+================================================================================
+
+The grid divides each area into cells for fast spatial search.
+NWNEE areas are made of 10m x 10m tiles.
+A 32x32 tile area is 320m x 320m in world units.
+
+CELL_SIZE (from core_grid.2da) sets how many tiles form one cell side:
+  CELL_SIZE=1: one cell per tile (finest grain, more memory)
+  CELL_SIZE=2: one cell per 2x2 tiles = 20m x 20m cells (recommended)
+  CELL_SIZE=4: one cell per 4x4 tiles = 40m x 40m cells (coarser, less memory)
+
+Cell index formula (row-major, 0-based):
+  col = floor(world_x / cell_world_size)
+  row = floor(world_y / cell_world_size)
+  cell_index = (row * area_cols) + col
+
+Neighbor radius (from 2DA): how many cells in each direction to search.
+  Radius=1: 3x3 neighborhood (9 cells, up to ~60m sweep with CELL_SIZE=2)
+  Radius=2: 5x5 neighborhood (25 cells, up to ~100m sweep with CELL_SIZE=2)
+
+Grid cells track which registry slots occupy them.
+core_ai_gps uses grid neighbor lookups to find nearby creatures to PCs
+without scanning the entire area registry.
+
+GridTickUpdate runs on the grid update interval and repositions slots
+that have moved to new cells (only creature types that can move).
+
+Surface material per cell is cached once at first grid update.
+core_ai_gps uses this to detect water tiles for canteen refill.
+
+================================================================================
+10. THE GPS SYSTEM
+================================================================================
+
+core_ai_gps runs as a package (row 0 in core_package.2da).
+It is the first package to run in every tick, before any creature AI.
+
+For each PC in the area:
+  1. Find the PC's grid cell.
+  2. Get neighbor cells using GridGetNeighborCells.
+  3. For each slot in those cells that is a creature type:
+     a. Compute distance squared (fast, no sqrt).
+     b. If within SLEEP_DIST: set AI state ACTIVE, remove sleep effect.
+     c. If beyond DESP_DIST and not plot-flagged: destroy + deregister.
+     d. Else: set AI state SLEEP.
+  4. Check if PC is near water (GridIsNearWater) -> refill canteen items.
+
+All distances come from core_ai_gps.2da (default) or per-creature
+slot variables (override set at spawn time: AI_SLP, AI_DSP, AI_DSO).
+
+================================================================================
+11. THE PACKAGE SYSTEM
+================================================================================
+
+Two-layer cache design:
+
+LAYER 1 - MODULE CACHE (static, set at boot, never changes):
+  PackageBoot() reads core_package.2da once and stores each row's
+  script name, phase, interval, priority etc. as module local variables.
+  Keys: PKG_[N]_SCRIPT, PKG_[N]_PHAS, PKG_[N]_IVRL, etc.
+  Row count: PKG_ROW_CNT.
+  Reverse lookup: PKG_IDX_[name] -> row number.
+
+LAYER 2 - PER-AREA JSON (mutable, per area activation):
+  PackageLoad() builds a JSON array stored as CORE_PKG_JSON on the area.
+  Array index = 2DA row index.
+  Each element: { paused, lt (last_tick), rc (run_count), eo, io, po (overrides) }
+  This JSON is what changes at runtime (pause states, run counts, area overrides).
+
+core_switch reads phase, script, interval from module cache (O(1)).
+core_switch reads paused/last_tick from JSON (one array element read).
+This means even with 50 packages, the loop is fast: no string parsing per row.
+
+Load throttling:
+  MeasureLoadDrift compares when core_switch was scheduled vs when it fired.
+  UpdateLoadScore maintains a 5-sample rolling average.
+  PackageUpdatePauseStates pauses packages whose PAUSE_THRESHOLD <= nLoad.
+  Hysteresis band of 10 prevents rapid pause/resume thrashing.
+
+Per-area SQL overrides:
+  Packages with AREA_OVERRIDE=1 can have per-area settings in SQL.
+  Table: pkg_area_overrides (area_tag, package_id, enabled, interval_ticks, pause_threshold).
+  Loaded at area boot and merged into the per-area JSON.
+  Example: city area disables encounter_spawn permanently via SQL.
+
+================================================================================
+12. HOW TO ADD A NEW PACKAGE (NO CORE CHANGES)
+================================================================================
+
+Step 1: Add a row to core_package.2da.
+  - Choose a unique PACKAGE name (e.g. "weather_v2")
+  - Set SCRIPT to the .nss filename (e.g. "pkg_weather2")
+  - Set BOOT_SCRIPT if you need area initialization (**** if not)
+  - Set SHUTDOWN_SCRIPT if you need to save state (**** if not)
+  - Set PRIORITY (higher number = lower priority = paused first under load)
+  - Set INTERVAL (1 = every tick, 20 = every 20th tick)
+  - Set MIN_PLAYERS (0 = runs even in empty areas)
+  - Set PAUSE_THRESHOLD (0 = never pauses, 80 = pauses at 80% load)
+  - Set AREA_OVERRIDE (1 = DM/SQL can override per area)
+  - Set PHASE (float seconds, spread across 0.5 to 4.5)
+
+Step 2: Write your tick script (pkg_weather2.nss).
+  - OBJECT_SELF is the area when called by ExecuteScript.
+  - Use RegistryFirst/RegistryNext to find objects by type.
+  - Use GridGetNeighborCells for spatial queries.
+  - Use GetMGTick() for the current tick number.
+
+Step 3: Optionally write boot and shutdown scripts.
+  - Boot: fires once when area activates, good for initializing per-area vars.
+  - Shutdown: fires before area goes dark, good for saving state to SQL.
+
+Step 4: Server restart (or PackageResetArea for a hot reload of the JSON).
+
+That is everything. No changes to:
+  - core_const.nss
+  - core_registry.nss
+  - core_package.nss
+  - core_switch.nss
+  - core_dispatch.nss
+  - core_enter.nss
+  - core_hb.nss
+  - core_onload.nss
+  - core_mhb.nss
+  - core_grid.nss
+  - core_ai_gps.nss
+  - core_grid.2da
+  - core_ai_gps.2da
+  - core_registry.2da
+
+================================================================================
+13. HOW TO CREATE A PACKAGE HUB (SUB-PACKAGE SYSTEM)
+================================================================================
+
+For complex packages (like an Encounter system with many subsystems),
+create a hub script that acts like a mini core_switch for its own sub-packages.
+
+Example: Encounter Hub
+
+  core_package.2da row:
+    PACKAGE=encounter  SCRIPT=enc_hub  BOOT=enc_hub_boot  SHUT=enc_hub_save
+
+  enc_hub.2da (your package's own 2DA):
+    Row 0: SUBPKG=enc_spawn   SCRIPT=enc_spawn   INTERVAL=4  ENABLED=1
+    Row 1: SUBPKG=enc_ai      SCRIPT=enc_ai      INTERVAL=1  ENABLED=1
+    Row 2: SUBPKG=enc_corpse  SCRIPT=enc_corpse  INTERVAL=5  ENABLED=1
+
+  enc_hub.nss:
+    Reads enc_hub.2da at first call (lazy init, cached on area).
+    Iterates its sub-packages, checks intervals, ExecuteScript each.
+    OBJECT_SELF is still the area.
+
+  This gives you a tree structure:
+    core_package.2da (trunk)
+      -> encounter package (branch)
+           -> enc_hub.2da (sub-branches)
+                -> enc_spawn, enc_ai, enc_corpse (leaves)
+
+  The core never knows or cares what enc_hub does internally.
+  You control the sub-package cadence, priority, and gating yourself.
+  The core just calls ExecuteScript("enc_hub", oArea) on its interval.
+
+================================================================================
+14. MODULE TOOLSET WIRING CHECKLIST
+================================================================================
+
+Module Properties -> Events:
+  [ ] OnModuleLoad      -> core_onload
+  [ ] OnModuleHeartbeat -> core_mhb
+
+Area Properties -> Events (set on EVERY area):
+  [ ] OnEnter      -> core_enter
+  [ ] OnHeartbeat  -> core_hb
+
+Script compilation order (if compiler is picky):
+  1. core_const.nss       (no dependencies)
+  2. core_registry.nss    (depends on core_const)
+  3. core_package.nss     (depends on core_const)
+  4. core_grid.nss        (depends on core_const)
+  5. core_ai_gps.nss      (depends on core_const, core_registry, core_grid)
+  6. core_dispatch.nss    (depends on core_const, core_package)
+  7. core_switch.nss      (depends on core_const, core_registry, core_package, core_grid)
+  8. core_enter.nss       (depends on core_registry, core_grid, core_package, core_const)
+  9. core_hb.nss          (depends on core_registry, core_const)
+ 10. core_onload.nss      (depends on all above)
+ 11. core_mhb.nss         (depends on core_dispatch)
+
+2DA files to place in the Override folder or module's data:
+  [ ] core_registry.2da
+  [ ] core_package.2da
+  [ ] core_grid.2da
+  [ ] core_ai_gps.2da
+
+================================================================================
+15. SQL PERSISTENCE
+================================================================================
+
+The core uses NWN's built-in SQLite (Campaign DB by default).
+Table: pkg_area_overrides
+  Columns: area_tag, package_id, enabled, interval_ticks, pause_threshold, notes
+  Primary key: (area_tag, package_id)
+
+Packages write their OWN tables using their own SQL in their shutdown scripts.
+The core does not dictate how packages store data - only the override table
+is core-managed. Packages are free to use any table names they need.
+
+To persist a player:
+  core_registry.nss tracks CDKey and account name in the slot.
+  On PC exit, your persistence package reads those from the slot and saves.
+  On PC entry, your persistence package reads from SQL and restores.
+
+================================================================================
+16. DEBUG AND DM TOOLS
+================================================================================
+
+Debug flags (set as module local ints):
+  MG_DEBUG       = 1  Enable master debug (general output)
+  MG_DEBUG_REG   = 1  Registry add/remove messages
+  MG_DEBUG_PKG   = 1  Package pause/resume and run messages
+  MG_DEBUG_GRID  = 1  Grid cell updates each tick
+  MG_DEBUG_GPS   = 1  GPS proximity state changes
+  MG_DEBUG_DISP  = 1  Dispatch area activate/deactivate
+  MG_DEBUG_SQL   = 1  SQL query debug
+  MG_DEBUG_ENC   = 1  Encounter spawning debug
+
+DM tool functions (call from a DM script):
+  RegistryDump(oArea, oDM)            - dump area registry by type counts
+  RegistryDumpSlot(oArea, nSlot, oDM) - dump one specific slot
+  PackageDump(oArea, oDM)             - dump all package states for an area
+  PackageDumpAll(oDM)                 - dump all active areas
+  PackageGetStatus(oArea, sName)      - one-line status for one package
+  PackageSetEnabled(oArea, sName, bEnabled, bPersist)
+  PackageSetInterval(oArea, sName, nInterval, bPersist)
+  PackageSetThreshold(oArea, sName, nThresh, bPersist)
+  PackageResetArea(oArea)             - hot-reload package JSON from 2DA+SQL
+  GridDump(oArea, oDM)                - dump grid dimensions and occupied cells
+
+================================================================================
+17. COMMON MISTAKES AND HOW TO AVOID THEM
+================================================================================
+
+MISTAKE: Adding a package to core_switch.nss by name.
+FIX: Never. Add a row to core_package.2da. core_switch reads it automatically.
+
+MISTAKE: Calling GetFirstObjectInArea inside a package tick script.
+FIX: Use RegistryFirst/RegistryNext instead. That is what the registry is for.
+
+MISTAKE: Hardcoding distances or intervals in package scripts.
+FIX: Store them in your package's own 2DA. Read once at boot, cache to module.
+     Follow the same pattern as core_grid.2da or core_ai_gps.2da.
+
+MISTAKE: Including core_registry in core_grid or vice versa (circular).
+FIX: core_grid only includes core_const. core_registry only includes core_const.
+     core_switch includes both. core_ai_gps includes both.
+
+MISTAKE: Forgetting to call PackageUnload and GridShutdownArea on shutdown.
+FIX: RegistryShutdown calls both. Just ensure RegistryShutdown is your shutdown path.
+
+MISTAKE: Setting AREA_OVERRIDE=0 then trying to use PackageSetEnabled for that area.
+FIX: Set AREA_OVERRIDE=1 in the 2DA for any package you want area-adjustable.
+
+MISTAKE: Not staggering boot scripts and getting a TMI crash on area activation.
+FIX: PackageRunBootScripts already staggers at 0.1s intervals. Keep boot scripts fast.
+
+MISTAKE: Two rows in core_package.2da with the same PACKAGE name.
+FIX: Each package name must be unique. PackageGetRow returns the first match.
+
+MISTAKE: BITFLAG values in core_registry.2da that are not powers of 2.
+FIX: Each row's BITFLAG must be a unique power of 2: 1,2,4,8,16,32...
+
+MISTAKE: Forgetting to add a OnEnter script to areas.
+FIX: core_enter.nss must be assigned to EVERY area's OnEnter event.
+     Without it, areas never boot and PCs never get registered.
+
+MISTAKE: Not calling RegistryAutoRegister from an OnSpawn script.
+FIX: Create a simple core_spawn.nss that calls:
+     RegistryAutoRegister(OBJECT_SELF, GetArea(OBJECT_SELF), FALSE);
+     Assign it to creature OnSpawn events (or use a default spawn script).
+
+================================================================================
+ END OF GUIDE
+================================================================================

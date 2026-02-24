@@ -1,0 +1,34 @@
+2DA V2.0
+
+// DOWE - core_ai_gps.2da
+// GPS Proximity System Configuration
+//
+// This 2DA is the single authority for all GPS default distances and settings.
+// core_ai_gps.nss reads this once at boot and caches everything on the module.
+// No distance values are hardcoded in any script.
+//
+// COLUMNS:
+// LABEL          Human-readable name for this setting.
+// KEY            Local variable key used in module cache. Prefixed with GPS_CFG_.
+// INT_VALUE      Integer value. Use 0 if this is a float setting.
+// FLOAT_VALUE    Float value. Use 0.0 if this is an int setting.
+// DESCRIPTION    Human-readable explanation. Not read by any script.
+//
+// PER-CREATURE OVERRIDES:
+// Any creature can override these defaults by having the corresponding
+// AI_ local variable set on its slot in the area registry:
+//   AI_SLP  (AI_SLEEP_DIST)  - override sleep radius for this creature
+//   AI_DSP  (AI_DESP_DIST)   - override despawn radius for this creature
+//   AI_DSO  (AI_DESP_OWNER)  - override owner follow radius for this creature
+//   AI_XFR  (AI_TRANSFER)    - 1 = transfer to new owner instead of despawn
+//
+// These can be set at spawn time by the encounter spawn system or any
+// script that registers a creature.
+
+      LABEL                     KEY                         INT_VALUE   FLOAT_VALUE     DESCRIPTION
+0     DEFAULT_SLEEP_DIST        DEFAULT_SLEEP_DIST          0           40.0            Default sleep distance in meters. AI suspended beyond this.
+1     DEFAULT_DESP_DIST         DEFAULT_DESP_DIST           0           80.0            Default despawn distance in meters. Creature removed beyond this.
+2     DEFAULT_OWNER_DIST        DEFAULT_OWNER_DIST          0           50.0            Default owner follow distance. Owned creatures despawn if owner is farther.
+3     CANTEEN_REFILL_INTERVAL   CANTEEN_REFILL_INTERVAL     5           0.0             Ticks between canteen refill checks per player.
+4     MAX_PC_ARRAY              MAX_PC_ARRAY                100         0.0             Maximum PCs tracked per area in one GPS tick. Safety cap.
+5     DESP_WARN_SECONDS         DESP_WARN_SECONDS           10          0.0             Default seconds of warning before an owned creature despawns.

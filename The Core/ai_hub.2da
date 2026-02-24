@@ -1,0 +1,31 @@
+2DA V2.0
+
+// DOWE - ai_hub.2da
+// AI Package Hub - Sub-System Dispatch Table
+// Plugs into pkg_ai_hub.nss (which is the SCRIPT in core_package.2da).
+// Each row is one AI sub-system. The hub tick reads this 2DA once at boot,
+// caches to module locals, then dispatches sub-scripts per active area.
+//
+// COLUMNS:
+//   SYSTEM       Unique ID string for this sub-system (lowercase, no spaces)
+//   ENABLED      1=active, 0=disabled globally
+//   PRIORITY     Execution order within this hub (1=first, higher=later)
+//   SCRIPT       .nss tick script executed for each area (no extension)
+//   BOOT_SCRIPT  .nss run once on area boot (or **** for none)
+//   SHUT_SCRIPT  .nss run on area shutdown (or **** for none)
+//   INTERVAL     Run every N ticks (1=every tick, 2=every other tick, etc)
+//   MIN_PLAYERS  Minimum PCs in area to run this sub-system (0=always)
+//   PHASE        DelayCommand stagger within hub tick window (float seconds)
+//   DEBUG_VAR    Module local int name for this sub-system debug flag.
+//                Set to 1 in-game via /*debug ai on "pass" or sub-commands.
+//                The hub tick checks this before logging sub-system output.
+//   AUTH_LEVEL   Minimum admin role to toggle this sub-system via console.
+//                0=any authenticated admin, 5=builder, 10=master.
+//                Does NOT gate normal tick-based dispatch.
+//   DESCRIPTION  Human-readable label for diagnostics
+
+      SYSTEM         ENABLED  PRIORITY  SCRIPT          BOOT_SCRIPT     SHUT_SCRIPT   IVRL  MNPC  PHASE  DEBUG_VAR            AUTH_LEVEL  DESCRIPTION
+0     ai_logic       1     1    pkg_ai_logic    ****            ****          1     1     0.1    MG_DEBUG_AI_LOGIC    5           NPC behavior archetype processor
+1     ai_caster      1     2    pkg_ai_caster   ****            ****          1     1     0.4    MG_DEBUG_AI_CAST     5           Caster logic and action sequencer
+2     ai_physics     1     3    pkg_ai_physics  ****            ****          2     0     0.8    MG_DEBUG_AI_PHYS     5           Physics weapon-zone applicator
+3     ai_survival    1     4    pkg_ai_survival ai_surv_boot    ai_surv_shut  3     0     1.2    MG_DEBUG_AI_SURV     5           NPC hunger thirst fatigue survival

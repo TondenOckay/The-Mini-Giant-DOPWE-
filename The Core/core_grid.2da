@@ -1,0 +1,50 @@
+2DA V2.0
+
+// DOWE - core_grid.2da
+// Spatial Grid Configuration
+//
+// This 2DA is the single authority for all grid settings.
+// core_grid.nss reads this once at boot and caches everything on the module.
+// No values are hardcoded in any script. Change a value here and reboot.
+//
+// COLUMNS:
+// LABEL            Human-readable name for this setting. Used in debug output.
+// KEY              Local variable name used when caching on module object.
+//                  All keys are prefixed with GRD_ internally.
+// INT_VALUE        Integer value for this setting. Use 0 if this is a float.
+// FLOAT_VALUE      Float value for this setting. Use 0.0 if this is an int.
+// DESCRIPTION      Human-readable explanation. Not read by any script.
+//
+// HOW THE GRID WORKS IN NWNEE:
+//   - A tile in NWNEE is always 10m x 10m.
+//   - An area of 32 tiles x 32 tiles is 320m x 320m in world units.
+//   - Area width/height in tiles is returned by GetAreaSize().
+//   - We can divide the area into a grid of CELL_SIZE x CELL_SIZE tile blocks.
+//   - CELL_SIZE = 1 means one grid cell per tile (finest, most memory).
+//   - CELL_SIZE = 2 means one grid cell per 2x2 tile block (20m x 20m).
+//   - CELL_SIZE = 4 means one grid cell per 4x4 tile block (40m x 40m).
+//   - TILE_SIZE sets the world-unit size of one tile (always 10.0 for NWNEE).
+//   - CELL_WORLD_SIZE = CELL_SIZE * TILE_SIZE (computed at boot, not stored here).
+//   - NEIGHBOR_RADIUS sets how many cells in each direction count as neighbors
+//     for GPS proximity checks (1 = 3x3 neighborhood, 2 = 5x5, etc).
+//
+// SURFACE MATERIAL CONSTANTS:
+//   These map NWN surface material IDs to human names for water detection.
+//   They are read by core_grid.nss and cached for use by core_ai_gps.nss.
+//   NWN surface material IDs are engine constants - do not change INT_VALUE
+//   for the SURF_* rows unless the engine changes them.
+
+      LABEL                   KEY                     INT_VALUE   FLOAT_VALUE     DESCRIPTION
+0     TILE_SIZE               TILE_SIZE               0           10.0            World-unit size of one NWN tile (always 10.0 in NWNEE)
+1     CELL_SIZE               CELL_SIZE               2           0.0             Grid cell size in tiles. 1=1x1 2=2x2 4=4x4. Must be 1 2 or 4.
+2     NEIGHBOR_RADIUS         NEIGHBOR_RADIUS         1           0.0             Cells in each direction for neighbor checks. 1=3x3 neighborhood.
+3     MAX_SLOTS_PER_CELL      MAX_SLOTS_PER_CELL      64          0.0             Maximum registry slots tracked per grid cell.
+4     UPDATE_INTERVAL         UPDATE_INTERVAL         2           0.0             Ticks between full grid position updates.
+5     ENABLE_SURFACE_MAT      ENABLE_SURFACE_MAT      1           0.0             1 = track surface material per cell for water detection etc.
+6     ENABLE_DEBUG            ENABLE_DEBUG            0           0.0             1 = send grid debug messages to DMs each tick.
+7     SURF_WATER              SURF_WATER              1           0.0             NWN surface material ID for deep water.
+8     SURF_PUDDLE             SURF_PUDDLE             4           0.0             NWN surface material ID for shallow puddles.
+9     SURF_SWAMP              SURF_SWAMP              5           0.0             NWN surface material ID for swamp/mud.
+10    SURF_SHALLOW_WATER      SURF_SHALLOW_WATER      15          0.0             NWN surface material ID for shallow water/ford.
+11    MAX_AREA_TILES          MAX_AREA_TILES          128         0.0             Safety cap on area dimensions in tiles (128x128 = NWN max area).
+12    CELL_SLOTS_WARN         CELL_SLOTS_WARN         56          0.0             Warn in log when a cell reaches this many slots (90% of max).

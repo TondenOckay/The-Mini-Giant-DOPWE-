@@ -1,0 +1,39 @@
+2DA V2.0
+
+// DOWE - core_admin.2da
+// Role-Based Access Control (RBAC) Authority
+// Cached to module locals by AdminBoot() at server start.
+//
+// SETUP:
+// 1. Replace ******** with each team member's actual NWN public CD key.
+//    The CD key appears in the server console when a player connects.
+//    It is always 8 uppercase alphanumeric characters (e.g. A1B2C3D4).
+// 2. Set a strong password. No spaces, no double-quotes.
+//    Different team members should have different passwords.
+// 3. Set ACTIVE = 1 to enable a row. 0 to disable without deleting.
+// 4. To revoke access: set ACTIVE = 0 or set CD_KEY to **** and
+//    type /*reload admin "masterpassword" in-game to hot-reload.
+//
+// ROLE LEVELS:
+//  10 = MASTER   Full access. Reload all 2DAs, force area shutdown,
+//                toggle lockdown, change any package setting.
+//   5 = BUILDER  Reload 2DAs, toggle packages on/off, change intervals,
+//                all debug tracers on/off.
+//   1 = MOD      Toggle debug tracers, view status output only.
+//   0 = REVOKED  Row exists but access denied. Safer than deleting.
+//
+// SECURITY NOTE:
+//   /*commands are silenced immediately by core_chat.nss.
+//   Passwords are never visible in chat to other players.
+//   CD key is verified BEFORE password is checked (double authentication).
+//
+// AFTER EDITING:
+//   Reload without restart: /*reload admin "masterpassword"
+//   The master password row must already be active to do this.
+
+      LABEL           CD_KEY      PASSWORD      ACTIVE  ROLE   DESCRIPTION
+0     MASTER_DEV      ********    ChangeMe10    1       10     Primary developer - CHANGE PASSWORD AND CD_KEY BEFORE GOING LIVE
+1     BUILDER_01      ********    ChangeMe5a    1       5      World builder slot 1 - fill CD_KEY from server console
+2     BUILDER_02      ****        ChangeMe5b    0       5      Builder slot 2 - set ACTIVE 1 and fill CD_KEY to enable
+3     MODERATOR_01    ****        ChangeMe1a    0       1      Moderator slot 1 - set ACTIVE 1 and fill CD_KEY to enable
+4     MODERATOR_02    ****        ChangeMe1b    0       1      Moderator slot 2 - set ACTIVE 1 and fill CD_KEY to enable

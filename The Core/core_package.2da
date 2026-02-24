@@ -1,0 +1,49 @@
+2DA V2.0
+
+// DOWE - core_package.2da
+// Package Registry Hub - Central Sub-System Authority
+// PackageBoot() reads this once at server start, caches to module locals.
+// No 2DA reads at runtime. Add one row per package. No code changes needed.
+//
+// COLUMN GUIDE:
+//   PACKAGE         Unique ID (lowercase, no spaces)
+//   ENABLED         1=active globally, 0=disabled
+//   PRIORITY        Dispatch order (1=first, 99=last within tick)
+//   SCRIPT          .nss tick script (no extension) or **** for none
+//   BOOT_SCRIPT     .nss run at module load + area boot, or ****
+//   SHUTDOWN_SCRIPT .nss run at area shutdown, or ****
+//   INTERVAL        Run every N ticks (1=every tick, 10=every 60s)
+//   MIN_PLAYERS     Min PCs in area to run (0=always run)
+//   PAUSE_THRESHOLD Pause package if server load >= this % (0=never pause)
+//   AREA_OVERRIDE   1=DMs can toggle per-area via SQL and console
+//   PHASE           DelayCommand stagger offset in seconds (float)
+//   DEBUG_VAR       Module-level int name for per-package debug flag (max 16 chars)
+//   AUTH_LEVEL      Minimum admin ROLE to manually toggle via console
+//                   0=any DM, 5=builder, 10=master only
+//
+// PHASE STAGGER GUIDE (spread across 4.5s window per heartbeat):
+//   Row 0:  0.0-0.5  (DOWE core systems - run first)
+//   Row 1:  0.5-1.0
+//   Row 2:  1.0-1.5
+//   Row 3:  1.5-2.0
+//   Row 4:  2.0-2.5
+//   Row 5:  2.5-3.0
+//   Row 6:  3.0-3.5
+//   Row 7:  3.5-4.0  (last packages, metrics always last)
+//
+// BOOT ORDER: characters -> command -> ai_gps -> ai_hub -> encounters -> society -> environment -> metrics
+//   Characters first: caches race/class/spell data that other systems read.
+//   Command first: keyword engine must be ready before PCs can enter.
+//   GPS/AI: core simulation systems.
+//   Society/Environment: world-state systems (depend on AI being ready).
+//   Metrics: always last (monitors everything else).
+
+      PACKAGE          ENABLED  PRIORITY  SCRIPT            BOOT_SCRIPT          SHUTDOWN_SCRIPT        INTERVAL  MIN_PLAYERS  PAUSE_THRESHOLD  AREA_OVERRIDE  PHASE  DEBUG_VAR          AUTH_LEVEL
+0     characters       1        1         pkg_char_hb      pkg_char_hb_boot    pkg_char_hb_shut      1         0            0                0              0.1    ****               9
+1     command          1        2         pkg_cmd_hb       pkg_cmd_hb_boot     pkg_cmd_hb_shut       1         1            0                0              0.5    MG_DEBUG_MUD       5
+2     ai_gps           1        3         pkg_ai_gps        ****                 ****                   1         1            90               0              1.0    MG_DEBUG_GPS       5
+3     ai_hub           1        4         pkg_ai_hub        ****                 ****                   1         1            85               0              1.5    MG_DEBUG_AI        5
+4     encounters       1        5         pkg_enc_hb       pkg_enc_hb_boot     pkg_enc_hb_shut       1         1            80               1              2.0    MG_DEBUG_ENC       5
+5     society          1        6         pkg_soc_hb       pkg_soc_hb_boot     pkg_soc_hb_shut       1         1            70               1              2.5    MG_DEBUG_MUD       5
+6     environment      1        7         pkg_env_hb       pkg_env_hb_boot     pkg_env_hb_shut       1         0            60               1              3.0    MG_DEBUG_MUD_ATM   5
+7     metrics          1        99        pkg_metrics       ****                 ****                   10        0            0                0              4.0    MG_DEBUG_METR      1

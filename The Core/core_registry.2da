@@ -1,0 +1,48 @@
+2DA V2.0
+
+// DOWE Registry Authority - core_registry.2da
+// Every row defines a complete object type for the registry system.
+// The registry.nss script reads this ONCE at server start and caches it.
+// All classification, registration, and cleanup behavior flows from this file.
+// Add a new row here to add a new type - no script changes required.
+//
+// COLUMNS:
+// LABEL          Unique name for this type. Used in debug output and JSON.
+// BITFLAG        Power-of-2 bitmask. Each type gets exactly one bit. Do not duplicate.
+// TYPE_STAMP     String stamped as RG_TYPE on the object itself. Keep short.
+// TAG_PREFIX     Tag prefix that auto-identifies this type. **** = PC-only (no tag match).
+// TRACK_CDKEY    1 = store PC CDKey in slot data. Only relevant for PLAYER row.
+// TRACK_ACCOUNT  1 = store account name in slot data. Only relevant for PLAYER row.
+// TRACK_OWNER    1 = this type can have an owner slot (henchmen, pets, summons etc).
+// AUTO_ENTER     1 = auto-register when object enters area via OnEnter.
+// AUTO_SPAWN     1 = auto-register when creature fires OnSpawn.
+// PULSE_GATE     1 = switchboard checks this type's presence flag before dispatching.
+// RECLAIM_GHOST  1 = ManifestClean() will free this slot if the object becomes invalid.
+// DESTROY_CULL   1 = ManifestCull() physically destroys the object when it expires.
+//                0 = cull only deregisters (removes from registry, leaves object alive).
+// EXPIRE_TICKS   Default tick count before this type expires. 0 = never expires.
+// DESPAWN_DIST   Despawn radius in meters. 0 = no distance despawn.
+// IS_PLAYER_TYPE 1 = counts toward ManifestPCCount() cached value.
+// IS_CREATURE    1 = treated as a creature for GPS and AI systems.
+// IS_CULLABLE    1 = included in MF_ALL_CULLABLE composite. Safe to destroy on shutdown.
+// PRESENCE_VAR   Local var name written to area object as a presence flag (0/1 count).
+
+      LABEL            BITFLAG   TYPE_STAMP  TAG_PREFIX  TRACK_CDKEY  TRACK_ACCOUNT  TRACK_OWNER  AUTO_ENTER  AUTO_SPAWN  PULSE_GATE  RECLAIM_GHOST  DESTROY_CULL  EXPIRE_TICKS  DESPAWN_DIST  IS_PLAYER_TYPE  IS_CREATURE  IS_CULLABLE  PRESENCE_VAR
+0     PLAYER           1         PLAYER      ****        1            1              0            1           0           1           1              0             0             0             1               0            0            MG_HAS_PC
+1     LIVE_NPC         2         NPC         NPC_        0            0              0            1           1           1           1              0             0             0             1               1            0            MG_HAS_NPC
+2     HENCHMAN         4         HENCHMAN    HENCH_      0            0              1            1           1           1           1              0             0             0             0               1            0            MG_HAS_NPC
+3     MOUNT            8         MOUNT       MNT_        0            0              1            1           1           1           1              0             0             0             0               0            0            ****
+4     PET              16        PET         PET_        0            0              1            1           1           1           1              0             0             0             0               1            0            ****
+5     SUMMONED         32        SUMMONED    SUM_        0            0              1            0           1           1           1              1             100           0             0               1            1            MG_HAS_ENC
+6     CREATURE         64        CREATURE    ENC_        0            0              0            0           1           1           1              1             0             50            0               1            1            MG_HAS_ENC
+7     OBJECT           128       OBJECT      PLC_        0            0              0            1           1           0           0              0             0             0             0               0            0            ****
+8     CORPSE           256       CORPSE      CRP_        0            0              0            0           1           1           1              1             100           0             0               0            1            MG_HAS_CORPSE
+9     ITEM             512       ITEM        ITM_        0            0              0            0           1           1           1              1             200           0             0               0            1            MG_HAS_ITEM
+10    GATHER_NODE      1024      NODE        NODE_       0            0              0            1           1           0           0              0             0             0             0               0            0            ****
+11    CRAFT_BOX        2048      CRAFTBOX    CRAFT_      0            0              0            1           1           0           0              0             0             0             0               0            0            ****
+12    WP_NPC           4096      WP_NPC      WP_NPC_     0            0              0            1           0           0           0              0             0             0             0               0            0            ****
+13    WP_CREATURE      8192      WP_CREAT    WP_ENC_     0            0              0            1           0           0           0              0             0             0             0               0            0            ****
+14    WP_WALK          16384     WP_WALK     WP_WALK_    0            0              0            1           0           0           0              0             0             0             0               0            0            ****
+15    TRIGGER          32768     TRIGGER     TRG_        0            0              0            1           0           0           0              0             0             0             0               0            0            ****
+16    QUEST            65536     QUEST       QST_        0            0              0            1           0           0           0              0             0             0             0               0            0            ****
+17    LOOT_CHEST       131072    LOOT        LOOT_       0            0              0            1           1           0           0              0             0             0             0               0            0            ****
